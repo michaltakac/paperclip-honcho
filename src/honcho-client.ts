@@ -125,13 +125,26 @@ async function requestJson(
     if (apiKey) {
       headers.authorization = `Bearer ${apiKey}`;
     }
-    const res = await ctx.http.fetch(joinUrl(config.honchoApiBaseUrl, pathname), {
-      ...init,
-      headers: {
-        ...headers,
-        ...(init.headers ?? {}),
-      },
-    });
+    const targetUrl = joinUrl(config.honchoApiBaseUrl, pathname);
+    let res: Response | null;
+    try {
+      res = await ctx.http.fetch(targetUrl, {
+        ...init,
+        headers: {
+          ...headers,
+          ...(init.headers ?? {}),
+        },
+      });
+    } catch (fetchError) {
+      // The host SDK reconstructs a Response from the host-side fetch result and
+      // will throw a RangeError ('init["status"] must be in the range of 200 to
+      // 599, inclusive.') if that intermediate status is out of range. Without
+      // this wrap the operator sees only the RangeError with no URL context, so
+      // record the pathname + method to make the next failure diagnosable.
+      const method = (init.method ?? "GET").toString().toUpperCase();
+      const detail = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      throw new Error(`${method} ${pathname} fetch failed (${targetUrl}): ${detail}`);
+    }
     if (!res) {
       if (attempt < RATE_LIMIT_MAX_RETRIES) {
         await sleep(RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt));
