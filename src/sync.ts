@@ -1596,19 +1596,32 @@ export async function repairMappings(ctx: PluginContext, companyId: string): Pro
     ctx.logger.warn("Honcho MCP bridge sync failed", { companyId, error: bridgeResult.message });
   }
 
+  // Parallelize per-agent and per-issue mapping with bounded concurrency.
+  // The action that invokes repairMappings is called via performAction whose
+  // host-side RPC deadline is 30s; a fully sequential loop over ~100+ issues
+  // × ~200ms Honcho round-trips blows past that deadline and the caller sees
+  // "RPC call \"performAction\" timed out after 30000ms". Chunk of 8 keeps
+  // Honcho's connection pool from being overrun while cutting wall-clock ~8x.
+  const CONCURRENCY = 8;
+  const runInChunks = async <T>(items: T[], worker: (item: T) => Promise<void>) => {
+    for (let i = 0; i < items.length; i += CONCURRENCY) {
+      await Promise.all(items.slice(i, i + CONCURRENCY).map(worker));
+    }
+  };
+
   const agents = await listCompanyAgents(ctx, companyId);
-  for (const agent of agents) {
+  await runInChunks(agents, async (agent) => {
     await client.ensureAgentPeer(companyId, agent);
     await upsertAgentPeerMapping(ctx, companyId, agent);
-    repaired += 1;
-  }
+  });
+  repaired += agents.length;
 
   const issues = await listCompanyIssues(ctx, companyId);
-  for (const issue of issues) {
+  await runInChunks(issues, async (issue) => {
     await client.ensureIssueSession(issue, company);
     await upsertSessionMapping(ctx, issue, workspaceId);
-    repaired += 1;
-  }
+  });
+  repaired += issues.length;
 
   await patchCompanySyncStatus(ctx, companyId, {
     workspaceStatus: "mapped",
