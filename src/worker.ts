@@ -48,8 +48,25 @@ function maybeBootstrapLocalHonchoConfig(config: HonchoResolvedConfig): void {
 
 const plugin = definePlugin({
   async setup(ctx) {
-    const initialConfig = await getResolvedConfig(ctx);
-    maybeBootstrapLocalHonchoConfig(initialConfig);
+    // setup() runs as the worker's initialize and carries NO invocation scope.
+    // Current Paperclip hosts deny `config.get` without an authorized company
+    // context ("company context is required"), which aborted initialize and left
+    // the plugin stuck in `error`. Plugin config is per-company, so a scope-less
+    // read is genuinely ambiguous — the host is right to refuse it.
+    //
+    // So setup() must not depend on config. The only two things that did:
+    //   1. the optional local-Honcho bootstrap — a no-op unless
+    //      useLocalHonchoConfig + bootstrapLocalHonchoConfig + honchoApiKey are
+    //      all set; now best-effort.
+    //   2. the enablePeerChat gate on registering the askPeer tool — redundant,
+    //      because the tool's own handler already re-checks enablePeerChat under
+    //      a real scope and returns a clean "disabled" error.
+    try {
+      maybeBootstrapLocalHonchoConfig(await getResolvedConfig(ctx));
+    } catch {
+      // Config unavailable at setup (no company scope). Every other code path
+      // reads config lazily under a real scope, so this is safe to skip.
+    }
     for (const launcher of RUNTIME_LAUNCHERS) {
       ctx.launchers.register(launcher);
     }
@@ -239,7 +256,10 @@ const plugin = definePlugin({
       },
     );
 
-    if (initialConfig.enablePeerChat) {
+    // Registered unconditionally: the handler below re-checks enablePeerChat
+    // under a real scope, so a setup-time gate would only duplicate it — at the
+    // cost of needing config during initialize, which the host denies.
+    {
       ctx.tools.register(
         TOOL_NAMES.askPeer,
         manifest.tools?.find((tool) => tool.name === TOOL_NAMES.askPeer) ?? {
