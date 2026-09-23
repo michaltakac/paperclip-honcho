@@ -525,7 +525,7 @@ async function buildMigrationCandidates(
   ctx: PluginContext,
   companyId: string,
 ): Promise<MigrationSourceCandidate[]> {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const issues = await listCompanyIssues(ctx, companyId);
   const candidates: MigrationSourceCandidate[] = [];
 
@@ -833,7 +833,7 @@ async function patchJobProgress(
 }
 
 async function buildMemoryStatusData(ctx: PluginContext, companyId: string): Promise<MemoryStatusData> {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const validation = validateConfig(config);
   const [companyStatus, counts, checkpoints, jobs] = await Promise.all([
     getCompanySyncStatus(ctx, companyId),
@@ -1087,7 +1087,7 @@ export async function scanMigrationSources(ctx: PluginContext, companyId: string
 }
 
 export async function importMigrationPreview(ctx: PluginContext, companyId: string) {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const validation = validateConfig(config);
   if (!validation.ok) {
     throw new Error(validation.errors?.join("; ") ?? "Honcho config is invalid");
@@ -1242,7 +1242,7 @@ export async function importMigrationPreview(ctx: PluginContext, companyId: stri
 }
 
 export async function initializeMemory(ctx: PluginContext, companyId: string): Promise<InitializationReport> {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const validation = validateConfig(config);
   if (!validation.ok) {
     await patchCompanySyncStatus(ctx, companyId, {
@@ -1366,7 +1366,7 @@ export async function syncIssue(
   options: SyncIssueOptions = {},
 ): Promise<SyncIssueResult> {
   return await runIssueSyncExclusive(companyId, issueId, async () => {
-    const config = await getResolvedConfig(ctx);
+    const config = await getResolvedConfig(ctx, companyId);
     const status = await getIssueSyncStatus(ctx, issueId);
     const replay = options.replay === true;
     const resources = await fetchIssueResources(ctx, issueId, companyId, config);
@@ -1470,7 +1470,7 @@ export async function replayIssue(ctx: PluginContext, issueId: string, companyId
 }
 
 export async function loadIssueStatusData(ctx: PluginContext, issueId: string, companyId: string) {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const issue = await ctx.issues.get(issueId, companyId);
   if (!issue) {
     throw new Error("Issue not found");
@@ -1565,7 +1565,7 @@ export async function probePromptContext(
 }
 
 export async function repairMappings(ctx: PluginContext, companyId: string): Promise<RepairMappingsResult> {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const company = await ctx.companies.get(companyId);
   const client = await createHonchoClient({ ctx, config });
   let repaired = 0;
@@ -1623,7 +1623,7 @@ export async function getIssueContext(ctx: PluginContext, issueId: string, compa
   const issue = await ctx.issues.get(issueId, companyId);
   if (!issue) throw new Error("Issue not found");
   const company = await ctx.companies.get(companyId);
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const context = await refreshContextPreview(ctx, issue, company, config);
   return {
     ...context,
@@ -1641,7 +1641,7 @@ export async function getWorkspaceContext(
   companyId: string,
   query: string,
 ): Promise<HonchoSearchResult[]> {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const client = await createHonchoClient({ ctx, config });
   return await client.getWorkspaceContext(companyId, agentId, query);
 }
@@ -1652,7 +1652,7 @@ export async function getAgentContext(
   agentId: string,
   issueId?: string | null,
 ) {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const client = await createHonchoClient({ ctx, config });
   return await client.getPeerRepresentation(companyId, agentId, {
     issueId: issueId ?? null,
@@ -1673,7 +1673,7 @@ export async function searchMemory(
   companyId: string,
   params: SearchMemoryParams,
 ) {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, companyId);
   const client = await createHonchoClient({ ctx, config });
   const scope = params.scope ?? (params.issueId ? "session" : "workspace");
   return await client.searchMemory(companyId, agentId, {
@@ -1687,7 +1687,7 @@ export async function buildPromptContext(
   ctx: PluginContext,
   input: PromptContextBuildInput,
 ): Promise<PromptContextBuildResult | null> {
-  const config = await getResolvedConfig(ctx);
+  const config = await getResolvedConfig(ctx, input.companyId);
   if (!config.enablePromptContext) return null;
   if (!validateConfig(config).ok) return null;
 

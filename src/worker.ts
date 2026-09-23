@@ -48,8 +48,18 @@ function maybeBootstrapLocalHonchoConfig(config: HonchoResolvedConfig): void {
 
 const plugin = definePlugin({
   async setup(ctx) {
-    const initialConfig = await getResolvedConfig(ctx);
-    maybeBootstrapLocalHonchoConfig(initialConfig);
+    // Activation must not depend on reading config: on current hosts that
+    // needs a company context `setup()` may not have yet. The local Honcho
+    // bootstrap is optional, so skip it rather than fail the whole plugin.
+    let initialConfig: HonchoResolvedConfig | null = null;
+    try {
+      initialConfig = await getResolvedConfig(ctx);
+      maybeBootstrapLocalHonchoConfig(initialConfig);
+    } catch (error) {
+      ctx.logger.warn("Skipping local Honcho config bootstrap: plugin config not readable during setup", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
     for (const launcher of RUNTIME_LAUNCHERS) {
       ctx.launchers.register(launcher);
     }
@@ -168,7 +178,7 @@ const plugin = definePlugin({
 
     ctx.events.on("issue.updated", async (event) => {
       try {
-        const config = await getResolvedConfig(ctx);
+        const config = await getResolvedConfig(ctx, event.companyId);
         if (!config.syncIssueDocuments || !event.entityId) return;
         await syncIssue(ctx, event.entityId, event.companyId, {
           replay: false,
@@ -239,7 +249,9 @@ const plugin = definePlugin({
       },
     );
 
-    if (initialConfig.enablePeerChat) {
+    // Unknown at setup (config unreadable) -> register; the handler re-reads
+    // the company's config on every call and refuses when chat is disabled.
+    if (initialConfig?.enablePeerChat !== false) {
       ctx.tools.register(
         TOOL_NAMES.askPeer,
         manifest.tools?.find((tool) => tool.name === TOOL_NAMES.askPeer) ?? {
@@ -248,7 +260,7 @@ const plugin = definePlugin({
           parametersSchema: { type: "object", properties: {} },
         },
         async (params, runCtx): Promise<ToolResult> => {
-          const config = await getResolvedConfig(ctx);
+          const config = await getResolvedConfig(ctx, runCtx.companyId);
           if (!config.enablePeerChat) {
             return { error: "Honcho peer chat is disabled in plugin config" };
           }
