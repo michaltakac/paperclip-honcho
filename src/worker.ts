@@ -249,40 +249,39 @@ const plugin = definePlugin({
       },
     );
 
-    // Unknown at setup (config unreadable) -> register; the handler re-reads
-    // the company's config on every call and refuses when chat is disabled.
-    if (initialConfig?.enablePeerChat !== false) {
-      ctx.tools.register(
-        TOOL_NAMES.askPeer,
-        manifest.tools?.find((tool) => tool.name === TOOL_NAMES.askPeer) ?? {
-          displayName: "Honcho Ask Peer",
-          description: "Ask a Honcho peer",
-          parametersSchema: { type: "object", properties: {} },
-        },
-        async (params, runCtx): Promise<ToolResult> => {
-          const config = await getResolvedConfig(ctx, runCtx.companyId);
-          if (!config.enablePeerChat) {
-            return { error: "Honcho peer chat is disabled in plugin config" };
-          }
-          assertConfigured(config);
-          const input = params as Record<string, unknown>;
-          const targetPeerId = requireString(input.targetPeerId, "targetPeerId");
-          const query = requireString(input.query, "query");
-          const issueId = inferIssueId(input, runCtx) ?? undefined;
-          const client = await createHonchoClient({ ctx, config });
-          const response = await client.askPeer(runCtx.companyId, runCtx.agentId, {
-            targetPeerId,
-            query,
-            issueId,
-          });
-          const content = response.text ?? response.response ?? response.messages?.map((message) => message.content).filter(Boolean).join("\n\n") ?? "No Honcho peer response returned.";
-          return {
-            content,
-            data: response,
-          };
-        },
-      );
-    }
+    // Always registered: config is per company, so setup() cannot decide for
+    // every company. The handler re-reads the calling company's config and
+    // refuses when that company has peer chat disabled.
+    ctx.tools.register(
+      TOOL_NAMES.askPeer,
+      manifest.tools?.find((tool) => tool.name === TOOL_NAMES.askPeer) ?? {
+        displayName: "Honcho Ask Peer",
+        description: "Ask a Honcho peer",
+        parametersSchema: { type: "object", properties: {} },
+      },
+      async (params, runCtx): Promise<ToolResult> => {
+        const config = await getResolvedConfig(ctx, runCtx.companyId);
+        if (!config.enablePeerChat) {
+          return { error: "Honcho peer chat is disabled in plugin config" };
+        }
+        assertConfigured(config);
+        const input = params as Record<string, unknown>;
+        const targetPeerId = requireString(input.targetPeerId, "targetPeerId");
+        const query = requireString(input.query, "query");
+        const issueId = inferIssueId(input, runCtx) ?? undefined;
+        const client = await createHonchoClient({ ctx, config });
+        const response = await client.askPeer(runCtx.companyId, runCtx.agentId, {
+          targetPeerId,
+          query,
+          issueId,
+        });
+        const content = response.text ?? response.response ?? response.messages?.map((message) => message.content).filter(Boolean).join("\n\n") ?? "No Honcho peer response returned.";
+        return {
+          content,
+          data: response,
+        };
+      },
+    );
 
     ctx.tools.register(
       TOOL_NAMES.getWorkspaceContext,

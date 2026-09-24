@@ -51,4 +51,27 @@ describe("company-scoped plugin config (Paperclip >= 2026.9)", () => {
     expect(fallback.honchoApiBaseUrl).toBe(scoped.honchoApiBaseUrl);
     expect(calls.slice(1)).toEqual([undefined, "co_1"]);
   });
+
+  it("keeps honcho_ask_peer for a company that enables chat when the first company disables it", async () => {
+    installFetchMock();
+    const harness = createHonchoHarness({ config: { enablePeerChat: false } });
+    // co_1 (the company setup() sees first) disables peer chat; co_2 enables it.
+    const original = harness.ctx.config.get.bind(harness.ctx.config);
+    harness.ctx.config.get = async (companyId?: string) => {
+      const config = await original(companyId);
+      return companyId === "co_2" ? { ...config, enablePeerChat: true } : config;
+    };
+
+    await plugin.definition.setup(harness.ctx);
+
+    const disabled = await harness.executeTool("honcho_ask_peer", { targetPeerId: "peer", query: "Status?" }, {
+      companyId: "co_1", projectId: "proj_1", agentId: "agent_1", runId: "run_1",
+    });
+    expect(disabled.error).toBe("Honcho peer chat is disabled in plugin config");
+
+    const enabled = await harness.executeTool("honcho_ask_peer", { targetPeerId: "peer", query: "Status?" }, {
+      companyId: "co_2", projectId: "proj_1", agentId: "agent_1", runId: "run_1",
+    });
+    expect(enabled.error).not.toBe("Honcho peer chat is disabled in plugin config");
+  });
 });
